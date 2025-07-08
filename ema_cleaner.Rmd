@@ -17,17 +17,19 @@ des_raw <- read_csv(pid_path)
 des_lookup <- des_raw %>%
   select(`Record ID`, PID = `Please enter [preenrollment_arm_1][first_name]'s PARTICIPANT ID below.`)
 
-############---- CLEAN UP CREW -----####################
+# Load DES PID lookup
+pid_path <- "/Users/andrewcardona/Library/CloudStorage/OneDrive-TempleUniversity/Jason Chein's files - CABLAB/People/Andrew C/Screen time surveys/DES_raw.csv"
+des_raw <- read_csv(pid_path)
+des_lookup <- des_raw %>%
+  select(`Record ID`, PID = `Please enter [preenrollment_arm_1][first_name]'s PARTICIPANT ID below.`)
 
-# Define the renaming function
+# Rename helper functions (unchanged)
 rename_survey_block <- function(df, question_text, prefix) {
   matching_cols <- colnames(df)[str_detect(str_to_lower(colnames(df)), str_to_lower(question_text))]
-  
   if (length(matching_cols) == 0) {
     message(sprintf("No match found for: '%s'", question_text))
     return(df)
   }
-  
   clean_names <- str_extract(matching_cols, "(?<=\\(choice=).+?(?=\\))")
   clean_names[is.na(clean_names)] <- paste0("item", seq_len(sum(is.na(clean_names))))
   new_names <- paste0(prefix, str_to_lower(str_replace_all(clean_names, "[^a-zA-Z0-9]", "_")))
@@ -36,6 +38,7 @@ rename_survey_block <- function(df, question_text, prefix) {
 }
 
 rename_mins_columns <- function(df) {
+<<<<<<< HEAD
   mins_map <- c(
     "Instagram" = "insta_mins",
     "X \\(formerly Twitter\\)" = "x_mins",
@@ -49,6 +52,12 @@ rename_mins_columns <- function(df) {
     "WhatsApp" = "wa_mins",
     "WeChat" = "wc_mins"
   )
+=======
+  mins_map <- c("Instagram" = "insta_mins", "X \\(formerly Twitter\\)" = "x_mins", "Facebook" = "fb_mins",
+                "Snapchat" = "snap_mins", "TikTok" = "tiktok_mins", "YouTube" = "yt_mins",
+                "Reddit" = "reddit_mins", "Tumblr" = "tumblr_mins", "Pinterest" = "pin_mins",
+                "WhatsApp" = "wa_mins", "WeChat" = "wc_mins")
+>>>>>>> 5e5ecdf (mood association calculating, need to adjust)
   for (platform in names(mins_map)) {
     col_to_rename <- grep(paste0("how many minutes did you spend on ", platform), colnames(df), ignore.case = TRUE, value = TRUE)
     if (length(col_to_rename) == 1) {
@@ -59,6 +68,7 @@ rename_mins_columns <- function(df) {
 }
 
 rename_mood_cols <- function(df) {
+<<<<<<< HEAD
   mood_map <- c(
     "...5" = "gen_mood", "...21" = "insta_mood", "...67" = "x_mood",
     "...111" = "fb_mood", "...159" = "snapchat_mood", "...199" = "tiktok_mood",
@@ -68,6 +78,111 @@ rename_mood_cols <- function(df) {
   existing_cols <- intersect(names(mood_map), colnames(df))
   colnames(df)[match(existing_cols, colnames(df))] <- mood_map[existing_cols]
   return(df)
+=======
+  mood_map <- c("...5" = "gen_mood", "...21" = "insta_mood", "...67" = "x_mood",
+                "...111" = "fb_mood", "...159" = "snapchat_mood", "...199" = "tiktok_mood",
+                "...244" = "yt_mood", "...293" = "reddit_mood", "...340" = "tumblr_mood",
+                "...382" = "pin_mood", "...425" = "wa_mood", "...464" = "wc_mood")
+  existing_cols <- intersect(names(mood_map), colnames(df))
+  colnames(df)[match(existing_cols, colnames(df))] <- mood_map[existing_cols]
+  return(df)
+}
+
+calculate_scores <- function(df) {
+  if (!("PID" %in% colnames(df))) stop("PID column not found")
+  if (!("ema_id" %in% colnames(df))) stop("ema_id column not found")
+  
+  duration_cols <- intersect(c("insta_mins", "x_mins", "fb_mins", "snap_mins", "tiktok_mins", "yt_mins",
+                               "reddit_mins", "tumblr_mins", "pin_mins", "wa_mins", "wc_mins"), colnames(df))
+  mood_cols <- intersect(c("insta_mood", "x_mood", "fb_mood", "snapchat_mood", "tiktok_mood", "yt_mood",
+                           "reddit_mood", "tumblr_mood", "pin_mood", "wa_mood", "wc_mood"), colnames(df))
+  
+  if(length(duration_cols) == 0 || length(mood_cols) == 0) {
+    warning("No duration or mood columns found; returning NA scores")
+    return(tibble(
+      PID = unique(df$PID),
+      Mood_During_Use_Score = NA_real_,
+      Exposure_Negative_Score = NA_real_,
+      Avg_Total_Duration = NA_real_
+    ))
+  }
+
+  duration_long <- df %>%
+    select(PID, EMA = ema_id, all_of(duration_cols)) %>%
+    pivot_longer(cols = all_of(duration_cols), names_to = "app", values_to = "duration") %>%
+    mutate(app = str_remove(app, "_mins"))
+
+  mood_long <- df %>%
+    select(PID, EMA = ema_id, all_of(mood_cols)) %>%
+    pivot_longer(cols = all_of(mood_cols), names_to = "app", values_to = "mood") %>%
+    mutate(app = str_remove(app, "_mood"))
+
+  combined <- left_join(duration_long, mood_long, by = c("PID", "EMA", "app")) %>%
+    filter(!is.na(duration), !is.na(mood), duration > 0)
+
+  if(nrow(combined) == 0) {
+    warning("No combined duration-mood data; returning NA scores")
+    return(tibble(
+      PID = unique(df$PID),
+      Mood_During_Use_Score = NA_real_,
+      Exposure_Negative_Score = NA_real_,
+      Avg_Total_Duration = NA_real_
+    ))
+  }
+
+  mood_during_use <- combined %>%
+    group_by(PID, EMA) %>%
+    summarize(mood_weighted = sum(mood * duration) / sum(duration), .groups = "drop") %>%
+    group_by(PID) %>%
+    summarize(Mood_During_Use_Score = mean(mood_weighted, na.rm = TRUE))
+
+  total_use_ema <- combined %>%
+    group_by(PID, EMA) %>%
+    summarize(total_use = sum(duration), .groups = "drop")
+
+  neg_content_cols <- grep("_cont_", colnames(df), value = TRUE)
+
+  if(length(neg_content_cols) > 0){
+    neg_content_df <- df %>%
+      select(PID, EMA = ema_id, all_of(neg_content_cols)) %>%
+      rowwise() %>%
+      mutate(any_neg = as.integer(any(c_across(all_of(neg_content_cols)) == 1))) %>%
+      ungroup() %>%
+      group_by(PID) %>%
+      summarize(Exposure_Negative_Score = mean(any_neg, na.rm = TRUE))
+  } else {
+    neg_content_df <- tibble(PID = unique(df$PID), Exposure_Negative_Score = NA_real_)
+  }
+
+  avg_total_duration <- total_use_ema %>%
+    group_by(PID) %>%
+    summarize(Avg_Total_Duration = mean(total_use, na.rm = TRUE))
+
+  mood_during_use %>%
+    left_join(neg_content_df, by = "PID") %>%
+    left_join(avg_total_duration, by = "PID")
+}
+
+```
+```{r}
+data_dir <- "/Users/andrewcardona/Desktop/CABLAB_CODE/EMA"
+file_paths <- list.files(data_dir, pattern = "\\.csv$", full.names = TRUE)
+
+renamed_dfs <- lapply(file_paths, function(path) {
+  df <- read_csv(path)
+  ema_num <- str_extract(basename(path), "EMA\\d+")
+  df$ema_id <- ema_num
+
+  if ("Record ID" %in% colnames(df)) {
+  df <- left_join(df, des_lookup, by = "Record ID")
+  if (!"PID" %in% colnames(df) || all(is.na(df$PID))) {
+    warning("PID not found after join in file: ", path)
+    return(NULL)  # Skip this file
+  }
+} else {
+  warning("No 'Record ID' column in file: ", path)
+  return(NULL)  # Skip this file
+>>>>>>> 5e5ecdf (mood association calculating, need to adjust)
 }
 
 calculate_scores <- function(df) {
@@ -154,6 +269,7 @@ calculate_scores <- function(df) {
     left_join(avg_total_duration, by = "PID")
 }
 
+<<<<<<< HEAD
 ```
 
 
@@ -176,6 +292,8 @@ renamed_dfs <- lapply(file_paths, function(path) {
   }
   
   # Rename blocks of columns based on question text
+=======
+>>>>>>> 5e5ecdf (mood association calculating, need to adjust)
   df <- rename_survey_block(df, "Which of the following social media applications", "sm_")
   df <- rename_survey_block(df, "why did you go on instagram", "insta_")
   df <- rename_survey_block(df, "instagram in the last hour", "insta_cont_")
@@ -210,10 +328,17 @@ renamed_dfs <- lapply(file_paths, function(path) {
   df <- rename_survey_block(df, "why did you go on wechat", "wc_")
   df <- rename_survey_block(df, "wechat in the last hour", "wc_cont_")
   df <- rename_survey_block(df, "when you went on wechat, which of the following activities", "wc_act_")
+<<<<<<< HEAD
   
   df <- rename_mins_columns(df)
   df <- rename_mood_cols(df)
   
+=======
+
+  df <- rename_mins_columns(df)
+  df <- rename_mood_cols(df)
+
+>>>>>>> 5e5ecdf (mood association calculating, need to adjust)
   # Convert Checked/Unchecked to 1/0
   df[] <- lapply(df, function(col) {
     if (is.character(col) && all(na.omit(col) %in% c("Checked", "Unchecked"))) {
@@ -226,6 +351,7 @@ renamed_dfs <- lapply(file_paths, function(path) {
   return(df)
 })
 
+<<<<<<< HEAD
 for (i in seq_along(renamed_dfs)) {
   df <- renamed_dfs[[i]]
   
@@ -241,3 +367,53 @@ for (i in seq_along(renamed_dfs)) {
 }
 
 ```
+=======
+# 🧠 Track total use + mood across EMAs
+mood_use_tracker <- list()
+
+for (i in seq_along(renamed_dfs)) {
+  df <- renamed_dfs[[i]]
+  ema_num <- str_extract(basename(file_paths[i]), "EMA\\d+")
+  duration_cols <- intersect(c("insta_mins", "x_mins", "fb_mins", "snap_mins", "tiktok_mins", "yt_mins",
+                               "reddit_mins", "tumblr_mins", "pin_mins", "wa_mins", "wc_mins"), colnames(df))
+  if (!("PID" %in% colnames(df)) || !("gen_mood" %in% colnames(df)) || length(duration_cols) == 0) next
+
+ df_total <- df %>%
+  mutate(
+    total_use = rowSums(select(., all_of(duration_cols)), na.rm = TRUE),
+    EMA = ema_num  # 👈 this creates the EMA column as a string like "EMA1"
+  ) %>%
+  select(PID, EMA, total_use, gen_mood) %>%
+  filter(!is.na(total_use), !is.na(gen_mood))
+
+  mood_use_tracker[[i]] <- df_total
+}
+
+# Combine all EMA data and compute correlation
+all_mood_use <- bind_rows(mood_use_tracker)
+
+mood_use_assoc_final <- all_mood_use %>%
+  group_by(PID) %>%
+  summarise(Mood_Use_Association_Score = if (n() > 1) cor(total_use, gen_mood, use = "pairwise.complete.obs") else NA_real_)
+
+# 💾 Final loop: process and save
+for (i in seq_along(renamed_dfs)) {
+  df <- renamed_dfs[[i]]
+
+# Skip if PID is missing
+if (!("PID" %in% colnames(df)) || all(is.na(df$PID))) {
+  warning("Skipping file due to missing or empty PID column: ", file_paths[i])
+  next
+}
+
+scores <- calculate_scores(df) %>%
+  left_join(mood_use_assoc_final, by = "PID")
+
+  
+  df_joined <- left_join(df, scores, by = "PID")
+  ema_num <- str_extract(basename(file_paths[i]), "EMA\\d+")
+  write_csv(df_joined, file.path(data_dir, paste0("cleaned_", ema_num, ".csv")))
+}
+```
+
+>>>>>>> 5e5ecdf (mood association calculating, need to adjust)
