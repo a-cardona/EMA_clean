@@ -12,7 +12,9 @@ library(tidyverse)
 library(stringr)
 library(dplyr)
 
-# Load DES PID lookup
+#for this script you will first need to download the EMAS from redcap and then download the DES_raw.csv file within the Andrew folder in Cablab outlook!
+
+# Load DES PID lookup (the reason were calling this is because I actually couldnt figure out another way to organize by PID as opposed to record ID if needed you can go into my folder and download the des raw csv and just enter that file path for pid_path!)
 pid_path <- "/Users/andrewcardona/Library/CloudStorage/OneDrive-TempleUniversity/Jason Chein's files - CABLAB/People/Andrew C/Screen time surveys/DES_raw.csv"
 des_raw <- read_csv(pid_path)
 des_lookup <- des_raw %>%
@@ -76,7 +78,7 @@ rename_mood_cols <- function(df) {
   return(df)
 }
 
-# Main processing: loop over CSVs and compute intermediate data for final scores
+# Main processing: loop over CSVs and compute intermediate data for final scores replace this with the file path to your EMA files exported from red cap! 
 
 data_dir <- "/Users/andrewcardona/Desktop/CABLAB_CODE/EMA"
 file_paths <- list.files(data_dir, pattern = "\\.csv$", full.names = TRUE)
@@ -249,7 +251,7 @@ final_scores <- final_mood_during_use %>%
   left_join(final_neg_content, by = "PID") %>%
   left_join(final_avg_duration, by = "PID")
 
-# Export final participant scores CSV
+# Export final participant scores CSV this will create a seperate csv with the caluclated scores you will call this csv along with the EMAs in the app script! 
 write_csv(final_scores, file.path(data_dir, "final_participant_scores.csv"))
 
 print(final_scores)
